@@ -1,0 +1,100 @@
+groups:
+  # ============================================================
+  # 成本告警组
+  # ============================================================
+  - name: agent_cost
+    rules:
+      - alert: AgentDailyTokenHigh
+        expr: sum(increase(agent_llm_tokens_total[1d])) > 5000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent 日 Token 消耗超过 500 万"
+          description: "当前日 Token 消耗: {{ $value | humanize }}，阈值: 5,000,000"
+
+      - alert: AgentDailyCostHigh
+        expr: sum(increase(agent_llm_cost_usd_total[1d])) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent 日费用超过 $100"
+          description: "当前日费用: ${{ $value | printf \"%.2f\" }}，阈值: $100"
+
+      - alert: AgentSingleTaskTokenExceeded
+        expr: max by (task_id) (agent_task_tokens_total) > 100000
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "单任务 Token 消耗超过 10 万"
+          description: "任务 {{ $labels.task_id }} Token 消耗: {{ $value | humanize }}"
+
+      - alert: AgentCostBudgetExceeded
+        expr: sum(increase(agent_llm_cost_usd_total[1d])) > 200
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Agent 日费用严重超限，超过 $200"
+          description: "当前日费用: ${{ $value | printf \"%.2f\" }}，请立即检查"
+
+  # ============================================================
+  # 质量告警组
+  # ============================================================
+  - name: agent_quality
+    rules:
+      - alert: AgentLLMErrorRateHigh
+        expr: |
+          sum(rate(agent_llm_calls_total{status="error"}[5m]))
+          / sum(rate(agent_llm_calls_total[5m])) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LLM 调用错误率超过 10%"
+          description: "当前错误率: {{ $value | printf \"%.1%%\" }}，阈值: 10%"
+
+      - alert: AgentLLMP99LatencyHigh
+        expr: histogram_quantile(0.99, sum(rate(agent_llm_latency_seconds_bucket[5m])) by (le)) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM P99 延迟超过 30 秒"
+          description: "当前 P99: {{ $value | printf \"%.1f\" }}s，阈值: 30s"
+
+      - alert: AgentTaskDurationHigh
+        expr: histogram_quantile(0.95, sum(rate(agent_task_duration_seconds_bucket[5m])) by (le)) > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "任务 P95 耗时超过 10 分钟"
+          description: "当前 P95: {{ $value | printf \"%.0f\" }}s，阈值: 600s"
+
+  # ============================================================
+  # 业务告警组
+  # ============================================================
+  - name: agent_business
+    rules:
+      - alert: AgentApprovalTimeout
+        expr: sum(agent_approval_pending_total) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "审批积压超过 5 个"
+          description: "当前待审批数: {{ $value }}，请尽快处理"
+
+      - alert: AgentSubtaskFailureRateHigh
+        expr: |
+          sum(rate(agent_subtask_total{status="failed"}[15m]))
+          / sum(rate(agent_subtask_total[15m])) > 0.2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "子任务失败率超过 20%"
+          description: "当前失败率: {{ $value | printf \"%.1%%\" }}，阈值: 20%"

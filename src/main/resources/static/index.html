@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forge Platform — 控制台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #08090a; color: #f7f8f8; }
+
+        .header {
+            background: #0f1011; border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 20px 32px; text-align: center;
+        }
+        .header h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; }
+        .header p { font-size: 13px; color: #8a8f98; }
+
+        .grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px; padding: 32px; max-width: 1200px; margin: 0 auto;
+        }
+
+        .card {
+            background: #0f1011; border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px; padding: 24px; cursor: pointer;
+            transition: all 0.2s; text-decoration: none; color: inherit;
+        }
+        .card:hover {
+            border-color: #7170ff; transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(113,112,255,0.15);
+        }
+        .card .icon { font-size: 32px; margin-bottom: 12px; }
+        .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+        .card p { font-size: 12px; color: #8a8f98; line-height: 1.6; }
+        .card .tags { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+        .card .tag {
+            padding: 2px 8px; border-radius: 4px; font-size: 10px;
+            background: rgba(255,255,255,0.04); color: #8a8f98;
+        }
+
+        .stats-bar {
+            display: flex; justify-content: center; gap: 40px;
+            padding: 20px 32px; background: #0f1011;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .stat { text-align: center; }
+        .stat .num { font-size: 28px; font-weight: 700; color: #7170ff; }
+        .stat .label { font-size: 11px; color: #8a8f98; margin-top: 4px; }
+
+        .footer {
+            text-align: center; padding: 20px; color: #333; font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 Forge Platform</h1>
+        <p>SDD + DAG + LangGraph4j + Spring AI — 微服务开发 Agent 平台</p>
+    </div>
+
+    <div class="stats-bar" id="statsBar">
+        <div class="stat"><div class="num" id="sProjects">-</div><div class="label">项目</div></div>
+        <div class="stat"><div class="num" id="sSkills">-</div><div class="label">Skills</div></div>
+        <div class="stat"><div class="num" id="sEvents">-</div><div class="label">事件</div></div>
+        <div class="stat"><div class="num" id="sPrompts">-</div><div class="label">Prompts</div></div>
+        <div class="stat"><div class="num" id="sAudit">-</div><div class="label">审计日志</div></div>
+    </div>
+
+    <div class="grid">
+        <a class="card" href="/sprint-board.html">
+            <div class="icon">📋</div>
+            <h2>Sprint Board</h2>
+            <p>看板式任务管理。四列状态流转：Inbox → In Progress → Review → Done。
+               每张卡片带优先级标签、来源标签、Verdict 状态。</p>
+            <div class="tags">
+                <span class="tag">任务管理</span>
+                <span class="tag">看板</span>
+                <span class="tag">实时刷新</span>
+            </div>
+        </a>
+
+        <a class="card" href="/live-feed.html">
+            <div class="icon">🔴</div>
+            <h2>Live Feed</h2>
+            <p>全链路事件监控。21 种事件类型实时推送，按节点/LLM/工具/任务/审查过滤。
+               Agent 的飞行记录仪。</p>
+            <div class="tags">
+                <span class="tag">SSE</span>
+                <span class="tag">可观测性</span>
+                <span class="tag">实时</span>
+            </div>
+        </a>
+
+        <a class="card" href="/agent-orchestrator.html">
+            <div class="icon">🔧</div>
+            <h2>Agent 可视化编排</h2>
+            <p>拖拽式 DAG 编辑器。从左侧面板拖入节点类型，连线定义依赖关系，
+               右侧面板编辑属性。一键导出 JSON。</p>
+            <div class="tags">
+                <span class="tag">可视化</span>
+                <span class="tag">拖拽</span>
+                <span class="tag">DAG</span>
+            </div>
+        </a>
+
+        <a class="card" href="/api/projects">
+            <div class="icon">📁</div>
+            <h2>多项目管理</h2>
+            <p>一个 Agent 平台服务多个微服务项目。每个项目独立的 Spec 目录、Prompt 配置、
+               LLM 模型配置。共享 Worker 池。</p>
+            <div class="tags">
+                <span class="tag">多租户</span>
+                <span class="tag">项目隔离</span>
+            </div>
+        </a>
+
+        <a class="card" href="/api/prompts">
+            <div class="icon">💬</div>
+            <h2>Prompt 管理平台</h2>
+            <p>集中管理所有 Prompt 模板。版本化、回滚、A/B 测试。
+               追踪每个变体的使用次数和效果指标。</p>
+            <div class="tags">
+                <span class="tag">版本化</span>
+                <span class="tag">A/B 测试</span>
+                <span class="tag">回滚</span>
+            </div>
+        </a>
+
+        <a class="card" href="/api/skills">
+            <div class="icon">🧠</div>
+            <h2>Skill 管理</h2>
+            <p>Agent 知识库。SDD 规范、审查清单、编码规范、业务上下文。
+               支持外部目录热更新和 Git 拉取。</p>
+            <div class="tags">
+                <span class="tag">知识注入</span>
+                <span class="tag">热更新</span>
+                <span class="tag">Git</span>
+            </div>
+        </a>
+
+        <a class="card" href="/api/events/stats">
+            <div class="icon">📊</div>
+            <h2>事件统计</h2>
+            <p>全链路事件统计摘要。按事件类型、级别、来源分组。
+               监控 LLM 调用次数、工具使用频率、错误率。</p>
+            <div class="tags">
+                <span class="tag">统计</span>
+                <span class="tag">监控</span>
+            </div>
+        </a>
+
+        <a class="card" href="/api/audit">
+            <div class="icon">🔒</div>
+            <h2>审计日志</h2>
+            <p>不可篡改的操作追溯。谁触发了 Agent / 谁审批了 / 谁修改了 Spec。
+               按 actor/action/project 过滤查询。</p>
+            <div class="tags">
+                <span class="tag">安全</span>
+                <span class="tag">审计</span>
+                <span class="tag">合规</span>
+            </div>
+        </a>
+
+        <a class="card" href="/api/dynamic-plan/insert" onclick="return false">
+            <div class="icon">🔄</div>
+            <h2>动态规划</h2>
+            <p>运行时插入/移除/重试任务。中途发现新依赖 → 动态插入。
+               人工追加需求 → 动态扩展 DAG。</p>
+            <div class="tags">
+                <span class="tag">动态</span>
+                <span class="tag">DAG</span>
+                <span class="tag">热插拔</span>
+            </div>
+        </a>
+    </div>
+
+    <div class="footer">
+        Forge Platform v1.0 — 基于 Anthropic Harness Engineering 最佳实践
+    </div>
+
+    <script>
+        // 加载统计摘要
+        Promise.all([
+            fetch('/api/projects/stats').then(r=>r.json()).catch(()=>({total:0})),
+            fetch('/api/skills/stats').then(r=>r.json()).catch(()=>({total:0})),
+            fetch('/api/events/stats').then(r=>r.json()).catch(()=>({total:0})),
+            fetch('/api/prompts').then(r=>r.json()).catch(()=>([])),
+            fetch('/api/audit/stats').then(r=>r.json()).catch(()=>({total:0})),
+        ]).then(([proj, skills, events, prompts, audit]) => {
+            document.getElementById('sProjects').textContent = proj.total || 0;
+            document.getElementById('sSkills').textContent = skills.total || 0;
+            document.getElementById('sEvents').textContent = events.total || 0;
+            document.getElementById('sPrompts').textContent = prompts.length || 0;
+            document.getElementById('sAudit').textContent = audit.total || 0;
+        });
+    </script>
+</body>
+</html>

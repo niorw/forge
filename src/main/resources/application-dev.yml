@@ -1,0 +1,41 @@
+# ============================================================
+# 开发环境配置
+# 使用方式: java -jar app.jar --spring.profiles.active=dev
+# ============================================================
+
+spring:
+  data:
+    redis:
+      # 开发环境用单机模式，覆盖集群配置
+      cluster:
+        nodes: ""   # 清空集群节点，触发单机模式
+      host: localhost
+      port: 6379
+      password:
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:forge}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+
+# LLM 配置（开发用本地 Ollama）
+spring.ai.openai:
+  api-key: ollama
+  base-url: http://localhost:11434/v1
+  chat.options:
+    model: qwen2.5:7b
+    temperature: 0.1
+
+# 子 Agent 配置
+agent:
+  stream:
+    consumer-name: "worker-dev"
+  child:
+    max-concurrent: 2
+    timeout-seconds: 60
+  feishu:
+    enabled: false
+
+logging.level:
+  com.gmf.agent: DEBUG
+  org.bsc.langgraph4j: DEBUG

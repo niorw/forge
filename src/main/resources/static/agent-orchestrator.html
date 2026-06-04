@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent 可视化编排 — 拖拽式 DAG 编辑器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #08090a; color: #f7f8f8; }
+
+        .header {
+            background: #0f1011; border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 12px 24px; display: flex; justify-content: space-between; align-items: center;
+        }
+        .header h1 { font-size: 16px; }
+        .header .actions { display: flex; gap: 8px; }
+        .btn {
+            padding: 6px 16px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.1);
+            background: transparent; color: #d0d6e0; font-size: 12px; cursor: pointer;
+        }
+        .btn:hover { background: rgba(255,255,255,0.05); }
+        .btn-primary { background: #7170ff; border-color: #7170ff; color: #fff; }
+        .btn-primary:hover { background: #5b5ae6; }
+        .btn-danger { color: #ef4444; border-color: rgba(239,68,68,0.3); }
+
+        .main { display: flex; height: calc(100vh - 50px); }
+
+        /* 左侧节点面板 */
+        .node-panel {
+            width: 220px; background: #0f1011;
+            border-right: 1px solid rgba(255,255,255,0.06);
+            padding: 16px; overflow-y: auto;
+        }
+        .node-panel h3 { font-size: 12px; color: #8a8f98; margin-bottom: 12px; text-transform: uppercase; }
+        .node-template {
+            padding: 10px; margin-bottom: 8px; border-radius: 6px;
+            background: #191a1b; border: 1px solid rgba(255,255,255,0.06);
+            cursor: grab; transition: all 0.15s;
+        }
+        .node-template:hover { border-color: #7170ff; transform: translateY(-1px); }
+        .node-template .name { font-size: 13px; font-weight: 500; }
+        .node-template .desc { font-size: 11px; color: #8a8f98; margin-top: 4px; }
+
+        /* 画布 */
+        .canvas-area { flex: 1; position: relative; overflow: hidden; }
+        .canvas {
+            width: 100%; height: 100%;
+            background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* 节点 */
+        .dag-node {
+            position: absolute; width: 180px;
+            background: #191a1b; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px; padding: 12px; cursor: move;
+            transition: box-shadow 0.15s;
+        }
+        .dag-node:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+        .dag-node.selected { border-color: #7170ff; box-shadow: 0 0 0 2px rgba(113,112,255,0.3); }
+        .dag-node .node-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 6px;
+        }
+        .dag-node .node-type {
+            font-size: 9px; padding: 2px 6px; border-radius: 3px;
+            text-transform: uppercase; font-weight: 600;
+        }
+        .type-analyze { background: rgba(113,112,255,0.15); color: #7170ff; }
+        .type-architecture { background: rgba(139,92,246,0.15); color: #8b5cf6; }
+        .type-spec { background: rgba(6,182,212,0.15); color: #06b6d4; }
+        .type-plan { background: rgba(245,158,11,0.15); color: #f59e0b; }
+        .type-execute { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .type-review { background: rgba(236,72,153,0.15); color: #ec4899; }
+        .type-test { background: rgba(249,115,22,0.15); color: #f97316; }
+        .type-approval { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .dag-node .node-name { font-size: 13px; font-weight: 500; }
+        .dag-node .node-desc { font-size: 10px; color: #8a8f98; margin-top: 4px; }
+
+        /* 连接点 */
+        .port {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: #555; border: 2px solid #191a1b;
+            position: absolute; cursor: crosshair;
+        }
+        .port:hover { background: #7170ff; }
+        .port-in { top: -5px; left: 50%; transform: translateX(-50%); }
+        .port-out { bottom: -5px; left: 50%; transform: translateX(-50%); }
+
+        /* SVG 连线 */
+        .connections { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .connection { stroke: #555; stroke-width: 2; fill: none; }
+        .connection:hover { stroke: #7170ff; }
+
+        /* 右侧属性面板 */
+        .prop-panel {
+            width: 300px; background: #0f1011;
+            border-left: 1px solid rgba(255,255,255,0.06);
+            padding: 16px; overflow-y: auto;
+        }
+        .prop-panel h3 { font-size: 12px; color: #8a8f98; margin-bottom: 12px; text-transform: uppercase; }
+        .prop-group { margin-bottom: 16px; }
+        .prop-group label { display: block; font-size: 11px; color: #8a8f98; margin-bottom: 4px; }
+        .prop-group input, .prop-group textarea, .prop-group select {
+            width: 100%; background: #191a1b; border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px; padding: 6px 8px; color: #f7f8f8; font-size: 12px;
+        }
+        .prop-group textarea { min-height: 60px; resize: vertical; }
+        .prop-group input:focus, .prop-group textarea:focus { border-color: #7170ff; outline: none; }
+
+        /* 底部 JSON 预览 */
+        .json-preview {
+            position: fixed; bottom: 0; left: 220px; right: 300px;
+            background: #0f1011; border-top: 1px solid rgba(255,255,255,0.06);
+            padding: 8px 16px; font-size: 11px; color: #8a8f98;
+            max-height: 120px; overflow-y: auto; display: none;
+        }
+        .json-preview.show { display: block; }
+        .json-preview pre { white-space: pre-wrap; font-family: 'SF Mono', monospace; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔧 Agent 可视化编排</h1>
+        <div class="actions">
+            <button class="btn" onclick="toggleJson()">JSON 预览</button>
+            <button class="btn" onclick="clearCanvas()">清空画布</button>
+            <button class="btn" onclick="loadTemplate()">加载模板</button>
+            <button class="btn btn-primary" onclick="exportDAG()">导出 DAG</button>
+        </div>
+    </div>
+
+    <div class="main">
+        <!-- 左侧节点面板 -->
+        <div class="node-panel">
+            <h3>节点类型</h3>
+            <div class="node-template" draggable="true" data-type="analyze">
+                <div class="name">📋 需求分析</div>
+                <div class="desc">理解需求、拆解功能</div>
+            </div>
+            <div class="node-template" draggable="true" data-type="architecture">
+                <div class="name">🏗️ 架构设计</div>
+                <div class="desc">服务拆分、技术选型</div>
+            </div>
+            <div class="node-template" draggable="true" data-type="spec">
+                <div class="name">📝 Spec 编写</div>
+                <div class="desc">接口契约、验收标准</div>
+            </div>
+            <div class="node-template" draggable="true" data-type="plan">
+                <div class="name">🗺️ DAG 规划</div>
+                <div class="desc">任务拆解、依赖关系</div>
+            </div>
+            <div class="node-template" draggable="true" data-type="execute">
+                <div class="name">⚡ 代码执行</div>
+                <div class="desc">生成代码、编译测试</div>
+            </div>
+            <div class="node-template" draggable="true" data-type="review">
+                <div class="name">🔍 代码审查</div>
+                <div class="desc">VERDICT 协议审查</div>
+            </div>
+            <div class="node-template" draggable="true" data-type="test">
+                <div class="name">🧪 测试验证</div>
+                <div class="desc">单元测试、集成测试</div>
+            </div>
+            <div class="node-template" draggable="true" data-type="approval">
+                <div class="name">✋ 人工审批</div>
+                <div class="desc">质量门禁、人工介入</div>
+            </div>
+
+            <h3 style="margin-top:20px">操作</h3>
+            <div class="node-template" onclick="deleteSelected()" style="cursor:pointer">
+                <div class="name" style="color:#ef4444">🗑️ 删除选中</div>
+                <div class="desc">删除选中的节点和连线</div>
+            </div>
+        </div>
+
+        <!-- 画布 -->
+        <div class="canvas-area">
+            <svg class="connections" id="svgConnections"></svg>
+            <div class="canvas" id="canvas"
+                 ondragover="event.preventDefault()"
+                 ondrop="handleDrop(event)">
+            </div>
+        </div>
+
+        <!-- 右侧属性面板 -->
+        <div class="prop-panel" id="propPanel">
+            <h3>节点属性</h3>
+            <div id="propContent">
+                <p style="color:#555;font-size:12px">点击节点查看属性</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="json-preview" id="jsonPreview">
+        <pre id="jsonContent"></pre>
+    </div>
+
+    <script>
+        let nodes = [];
+        let connections = [];
+        let selectedNode = null;
+        let nodeIdCounter = 0;
+        let draggingConnection = null;
+
+        // ===== 拖放创建节点 =====
+        function handleDrop(e) {
+            e.preventDefault();
+            const type = e.dataTransfer.getData('text/plain');
+            if (!type) return;
+
+            const canvas = document.getElementById('canvas');
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left - 90;
+            const y = e.clientY - rect.top - 30;
+
+            addNode(type, x, y);
+        }
+
+        function addNode(type, x, y) {
+            const id = 'node-' + (++nodeIdCounter);
+            const names = {
+                analyze: '需求分析', architecture: '架构设计', spec: 'Spec 编写',
+                plan: 'DAG 规划', execute: '代码执行', review: '代码审查',
+                test: '测试验证', approval: '人工审批'
+            };
+
+            const node = { id, type, name: names[type] || type, x, y, desc: '' };
+            nodes.push(node);
+            renderNode(node);
+            updateJson();
+        }
+
+        function renderNode(node) {
+            const canvas = document.getElementById('canvas');
+            const el = document.createElement('div');
+            el.className = 'dag-node';
+            el.id = node.id;
+            el.style.left = node.x + 'px';
+            el.style.top = node.y + 'px';
+
+            el.innerHTML = `
+                <div class="port port-in" data-node="${node.id}" data-port="in"></div>
+                <div class="node-header">
+                    <span class="node-name">${node.name}</span>
+                    <span class="node-type type-${node.type}">${node.type}</span>
+                </div>
+                <div class="node-desc">${node.desc || '点击右侧编辑属性'}</div>
+                <div class="port port-out" data-node="${node.id}" data-port="out"></div>
+            `;
+
+            // 拖拽移动
+            let offsetX, offsetY, isDragging = false;
+            el.addEventListener('mousedown', e => {
+                if (e.target.classList.contains('port')) return;
+                isDragging = true;
+                offsetX = e.offsetX;
+                offsetY = e.offsetY;
+                selectNode(node.id);
+            });
+            document.addEventListener('mousemove', e => {
+                if (!isDragging) return;
+                const rect = canvas.getBoundingClientRect();
+                node.x = e.clientX - rect.left - offsetX;
+                node.y = e.clientY - rect.top - offsetY;
+                el.style.left = node.x + 'px';
+                el.style.top = node.y + 'px';
+                renderConnections();
+            });
+            document.addEventListener('mouseup', () => isDragging = false);
+
+            // 端口连线
+            el.querySelectorAll('.port').forEach(port => {
+                port.addEventListener('mousedown', e => {
+                    e.stopPropagation();
+                    draggingConnection = { nodeId: node.id, port: port.dataset.port };
+                });
+                port.addEventListener('mouseup', e => {
+                    if (draggingConnection && draggingConnection.nodeId !== node.id) {
+                        connections.push({
+                            from: draggingConnection.nodeId,
+                            to: node.id
+                        });
+                        renderConnections();
+                        updateJson();
+                    }
+                    draggingConnection = null;
+                });
+            });
+
+            canvas.appendChild(el);
+        }
+
+        function selectNode(id) {
+            document.querySelectorAll('.dag-node').forEach(n => n.classList.remove('selected'));
+            const el = document.getElementById(id);
+            if (el) el.classList.add('selected');
+            selectedNode = nodes.find(n => n.id === id);
+            renderProperties(selectedNode);
+        }
+
+        function renderProperties(node) {
+            const panel = document.getElementById('propContent');
+            if (!node) {
+                panel.innerHTML = '<p style="color:#555;font-size:12px">点击节点查看属性</p>';
+                return;
+            }
+            panel.innerHTML = `
+                <div class="prop-group">
+                    <label>节点 ID</label>
+                    <input value="${node.id}" disabled>
+                </div>
+                <div class="prop-group">
+                    <label>类型</label>
+                    <select onchange="updateNodeType('${node.id}', this.value)">
+                        ${['analyze','architecture','spec','plan','execute','review','test','approval']
+                            .map(t => `<option value="${t}" ${t===node.type?'selected':''}>${t}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="prop-group">
+                    <label>名称</label>
+                    <input value="${node.name}" onchange="updateNodeProp('${node.id}','name',this.value)">
+                </div>
+                <div class="prop-group">
+                    <label>描述</label>
+                    <textarea onchange="updateNodeProp('${node.id}','desc',this.value)">${node.desc||''}</textarea>
+                </div>
+                <div class="prop-group">
+                    <label>依赖节点</label>
+                    <input value="${connections.filter(c=>c.to===node.id).map(c=>c.from).join(', ')}" disabled>
+                </div>
+                <button class="btn btn-danger" onclick="deleteNode('${node.id}')" style="width:100%;margin-top:8px">删除节点</button>
+            `;
+        }
+
+        function updateNodeProp(id, prop, value) {
+            const node = nodes.find(n => n.id === id);
+            if (node) { node[prop] = value; renderAll(); }
+        }
+        function updateNodeType(id, type) {
+            const node = nodes.find(n => n.id === id);
+            if (node) { node.type = type; renderAll(); }
+        }
+
+        function deleteNode(id) {
+            nodes = nodes.filter(n => n.id !== id);
+            connections = connections.filter(c => c.from !== id && c.to !== id);
+            const el = document.getElementById(id);
+            if (el) el.remove();
+            renderConnections();
+            updateJson();
+            renderProperties(null);
+        }
+        function deleteSelected() {
+            if (selectedNode) deleteNode(selectedNode.id);
+        }
+        function clearCanvas() {
+            nodes = []; connections = [];
+            document.getElementById('canvas').innerHTML = '';
+            renderConnections(); updateJson();
+        }
+
+        function renderAll() {
+            document.getElementById('canvas').innerHTML = '';
+            nodes.forEach(renderNode);
+            if (selectedNode) selectNode(selectedNode.id);
+            renderConnections(); updateJson();
+        }
+
+        function renderConnections() {
+            const svg = document.getElementById('svgConnections');
+            svg.innerHTML = '';
+            connections.forEach(conn => {
+                const fromEl = document.getElementById(conn.from);
+                const toEl = document.getElementById(conn.to);
+                if (!fromEl || !toEl) return;
+                const x1 = fromEl.offsetLeft + fromEl.offsetWidth / 2;
+                const y1 = fromEl.offsetTop + fromEl.offsetHeight;
+                const x2 = toEl.offsetLeft + toEl.offsetWidth / 2;
+                const y2 = toEl.offsetTop;
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const cy = (y1 + y2) / 2;
+                path.setAttribute('d', `M${x1},${y1} C${x1},${cy} ${x2},${cy} ${x2},${y2}`);
+                path.classList.add('connection');
+                svg.appendChild(path);
+            });
+        }
+
+        function updateJson() {
+            const dag = nodes.map(n => ({
+                nodeId: n.id, name: n.name, description: n.desc,
+                dependencies: connections.filter(c => c.to === n.id).map(c => c.from),
+                nodeType: n.type.toUpperCase()
+            }));
+            document.getElementById('jsonContent').textContent = JSON.stringify(dag, null, 2);
+        }
+        function toggleJson() { document.getElementById('jsonPreview').classList.toggle('show'); }
+
+        function exportDAG() {
+            const dag = nodes.map(n => ({
+                nodeId: n.id, name: n.name, description: n.desc,
+                dependencies: connections.filter(c => c.to === n.id).map(c => c.from),
+                nodeType: n.type.toUpperCase()
+            }));
+            navigator.clipboard.writeText(JSON.stringify(dag, null, 2));
+            alert('DAG JSON 已复制到剪贴板');
+        }
+
+        function loadTemplate() {
+            clearCanvas();
+            const template = [
+                { type: 'analyze', x: 300, y: 30, name: '需求分析' },
+                { type: 'architecture', x: 300, y: 140, name: '架构设计' },
+                { type: 'spec', x: 300, y: 250, name: 'Spec 编写' },
+                { type: 'approval', x: 300, y: 360, name: 'Spec 审批' },
+                { type: 'plan', x: 300, y: 470, name: 'DAG 规划' },
+                { type: 'execute', x: 150, y: 580, name: '代码生成-1' },
+                { type: 'execute', x: 450, y: 580, name: '代码生成-2' },
+                { type: 'review', x: 300, y: 690, name: '代码审查' },
+                { type: 'test', x: 300, y: 800, name: '测试验证' },
+            ];
+            template.forEach(t => addNode(t.type, t.x, t.y));
+            // 自动连线
+            for (let i = 0; i < nodes.length - 1; i++) {
+                if (i < 5) {
+                    connections.push({ from: nodes[i].id, to: nodes[i+1].id });
+                } else if (i === 5 || i === 6) {
+                    connections.push({ from: nodes[i].id, to: nodes[7].id });
+                } else if (i === 7) {
+                    connections.push({ from: nodes[i].id, to: nodes[8].id });
+                }
+            }
+            // plan → execute-1, execute-2
+            connections.push({ from: nodes[4].id, to: nodes[5].id });
+            connections.push({ from: nodes[4].id, to: nodes[6].id });
+            // 去重
+            const seen = new Set();
+            connections = connections.filter(c => {
+                const key = c.from + '->' + c.to;
+                if (seen.has(key)) return false;
+                seen.add(key); return true;
+            });
+            renderAll();
+        }
+
+        // 拖拽模板
+        document.querySelectorAll('.node-template[draggable]').forEach(el => {
+            el.addEventListener('dragstart', e => {
+                e.dataTransfer.setData('text/plain', el.dataset.type);
+            });
+        });
+    </script>
+</body>
+</html>

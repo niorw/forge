@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Workflow Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ========== CSS 变量 ========== */
+  :root {
+    --bg: #08090a;
+    --bg-card: #111214;
+    --bg-hover: #1a1b1e;
+    --bg-panel: #0d0e10;
+    --border: #1e1f23;
+    --border-light: #2a2b30;
+    --text: #e8e8ed;
+    --text-secondary: #8b8b96;
+    --text-dim: #555660;
+    --accent: #7170ff;
+    --accent-dim: rgba(113, 112, 255, 0.15);
+    --green: #34d399;
+    --green-dim: rgba(52, 211, 153, 0.15);
+    --red: #f87171;
+    --red-dim: rgba(248, 113, 113, 0.15);
+    --blue: #60a5fa;
+    --blue-dim: rgba(96, 165, 250, 0.15);
+    --orange: #fb923c;
+    --orange-dim: rgba(251, 146, 60, 0.15);
+    --yellow: #fbbf24;
+    --yellow-dim: rgba(251, 191, 36, 0.15);
+    --gray: #555660;
+    --gray-dim: rgba(85, 86, 96, 0.15);
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ========== 顶部栏 ========== */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+    flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; }
+  .header .logo { width: 8px; height: 8px; background: var(--accent); border-radius: 50%; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  }
+  .status-badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .status-badge.running { background: var(--blue-dim); color: var(--blue); }
+  .status-badge.running .dot { background: var(--blue); animation: pulse 1.5s infinite; }
+  .status-badge.completed { background: var(--green-dim); color: var(--green); }
+  .status-badge.completed .dot { background: var(--green); }
+  .status-badge.failed { background: var(--red-dim); color: var(--red); }
+  .status-badge.failed .dot { background: var(--red); }
+  .status-badge.waiting { background: var(--yellow-dim); color: var(--yellow); }
+  .status-badge.waiting .dot { background: var(--yellow); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  @keyframes nodePulse {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.3); }
+  }
+
+  .elapsed { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
+  .requirement { font-size: 12px; color: var(--text-secondary); max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ========== 主体布局 ========== */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ========== DAG 画布区域 ========== */
+  .dag-container {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    padding: 32px;
+  }
+  .dag-canvas {
+    position: relative;
+    width: 1100px;
+    height: 720px;
+    margin: 0 auto;
+  }
+  .dag-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  .dag-svg line {
+    stroke: var(--border-light);
+    stroke-width: 1.5;
+    marker-end: url(#arrowhead);
+  }
+  .dag-svg line.active {
+    stroke: var(--accent);
+    stroke-width: 2;
+  }
+
+  /* ========== DAG 节点 ========== */
+  .dag-node {
+    position: absolute;
+    width: 150px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 2;
+  }
+  .dag-node:hover {
+    border-color: var(--border-light);
+    background: var(--bg-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .dag-node.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .dag-node .node-name {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dag-node .node-type {
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .dag-node .node-status {
+    font-size: 10px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .dag-node .node-status .s-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+  }
+
+  /* 节点状态颜色 */
+  .dag-node[data-status="PENDING"]    { border-color: var(--gray); }
+  .dag-node[data-status="PENDING"] .node-status { color: var(--gray); }
+  .dag-node[data-status="PENDING"] .s-dot { background: var(--gray); }
+
+  .dag-node[data-status="RUNNING"]    { border-color: var(--blue); background: var(--blue-dim); }
+  .dag-node[data-status="RUNNING"] .node-status { color: var(--blue); }
+  .dag-node[data-status="RUNNING"] .s-dot { background: var(--blue); animation: pulse 1.2s infinite; }
+  .dag-node[data-status="RUNNING"] { animation: nodePulse 2s infinite; }
+
+  .dag-node[data-status="COMPLETED"]  { border-color: var(--green); }
+  .dag-node[data-status="COMPLETED"] .node-status { color: var(--green); }
+  .dag-node[data-status="COMPLETED"] .s-dot { background: var(--green); }
+
+  .dag-node[data-status="FAILED"]     { border-color: var(--red); background: var(--red-dim); }
+  .dag-node[data-status="FAILED"] .node-status { color: var(--red); }
+  .dag-node[data-status="FAILED"] .s-dot { background: var(--red); }
+
+  .dag-node[data-status="BLOCKED"]    { border-color: var(--orange); }
+  .dag-node[data-status="BLOCKED"] .node-status { color: var(--orange); }
+  .dag-node[data-status="BLOCKED"] .s-dot { background: var(--orange); }
+
+  .dag-node[data-status="WAITING"]    { border-color: var(--yellow); background: var(--yellow-dim); }
+  .dag-node[data-status="WAITING"] .node-status { color: var(--yellow); }
+  .dag-node[data-status="WAITING"] .s-dot { background: var(--yellow); }
+
+  /* ========== 右侧详情面板 ========== */
+  .detail-panel {
+    width: 320px;
+    border-left: 1px solid var(--border);
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+  .detail-panel .panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .detail-panel .panel-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .detail-content { padding: 20px; }
+  .detail-content h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .detail-content .detail-type {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+  }
+  .detail-content .detail-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 20px;
+  }
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-row .label { font-size: 12px; color: var(--text-secondary); }
+  .detail-row .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .detail-deps {
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  .detail-deps .deps-title {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .detail-deps .dep-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin: 2px 4px 2px 0;
+  }
+  .detail-result {
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  .detail-result .result-title {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .detail-result .result-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ========== 底部日志 ========== */
+  .log-panel {
+    height: 180px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .log-header h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .log-header .log-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .log-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .log-entry {
+    display: flex;
+    gap: 12px;
+    color: var(--text-secondary);
+    animation: fadeIn 0.3s ease;
+  }
+  .log-entry .log-time { color: var(--text-dim); flex-shrink: 0; }
+  .log-entry .log-node {
+    color: var(--accent);
+    flex-shrink: 0;
+    min-width: 120px;
+  }
+  .log-entry .log-msg {}
+  .log-entry.log-completed .log-msg { color: var(--green); }
+  .log-entry.log-failed .log-msg { color: var(--red); }
+  .log-entry.log-running .log-msg { color: var(--blue); }
+  .log-entry.log-blocked .log-msg { color: var(--orange); }
+  .log-entry.log-waiting .log-msg { color: var(--yellow); }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ========== 连接状态指示 ========== */
+  .sse-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--text-dim);
+  }
+  .sse-status .sse-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--gray);
+  }
+  .sse-status.connected .sse-dot { background: var(--green); }
+  .sse-status.disconnected .sse-dot { background: var(--red); }
+  .sse-status.connecting .sse-dot { background: var(--yellow); animation: pulse 1s infinite; }
+
+  /* ========== 滚动条 ========== */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<!-- ===== 顶部栏 ===== -->
+<div class="header">
+  <div class="header-left">
+    <div class="logo"></div>
+    <h1>Agent Workflow Monitor</h1>
+    <span class="requirement" id="requirement"></span>
+  </div>
+  <div class="header-right">
+    <div class="sse-status connecting" id="sseStatus">
+      <span class="sse-dot"></span>
+      <span id="sseLabel">连接中...</span>
+    </div>
+    <span class="elapsed" id="elapsed">00:00</span>
+    <span class="status-badge running" id="taskStatus">
+      <span class="dot"></span>
+      <span id="taskStatusText">RUNNING</span>
+    </span>
+  </div>
+</div>
+
+<!-- ===== 主体 ===== -->
+<div class="main">
+  <!-- DAG 画布 -->
+  <div class="dag-container">
+    <div class="dag-canvas" id="dagCanvas">
+      <svg class="dag-svg" id="dagSvg">
+        <defs>
+          <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="var(--border-light)" />
+          </marker>
+          <marker id="arrowhead-active" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="var(--accent)" />
+          </marker>
+        </defs>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 右侧详情面板 -->
+  <div class="detail-panel">
+    <div class="panel-header">节点详情</div>
+    <div id="detailContent">
+      <div class="panel-empty">点击 DAG 节点查看详情</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 底部日志 ===== -->
+<div class="log-panel">
+  <div class="log-header">
+    <h3>实时事件日志</h3>
+    <span class="log-count" id="logCount">0 events</span>
+  </div>
+  <div class="log-body" id="logBody"></div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ==================== 节点布局坐标（手动 Sugiyama 分层） ====================
+  // x, y 为节点左上角绝对像素坐标
+  const LAYOUT = {
+    'analyze':                  { x: 40,  y: 20 },
+    'plan':                     { x: 220, y: 20 },
+    'reviewSpec':               { x: 400, y: 20 },
+    'approval':                 { x: 580, y: 20 },
+    'schedule':                 { x: 580, y: 130 },
+    'dispatch':                 { x: 580, y: 240 },
+    'worker-define-interface':  { x: 400, y: 340 },
+    'worker-order-impl':        { x: 220, y: 440 },
+    'worker-payment-adapter':   { x: 580, y: 440 },
+    'worker-integration-test':  { x: 400, y: 530 },
+    'collect':                  { x: 220, y: 620 },
+    'integrate':                { x: 40,  y: 620 }
+  };
+
+  const NODE_W = 150;
+  const NODE_H = 72;
+
+  // ==================== 状态 ====================
+  let workflowData = null;
+  let selectedNodeId = null;
+  let logEntries = [];
+  let elapsedTimer = null;
+
+  // ==================== 初始化 ====================
+  function init() {
+    fetchStatus();
+    connectSSE();
+    startElapsedTimer();
+  }
+
+  // ==================== Demo 数据（离线模式）====================
+  function getDemoData() {
+    return {
+      taskId: 'demo-task-001',
+      requirement: '开发订单服务，支持创建、取消、查询订单',
+      status: 'RUNNING',
+      startedAt: Date.now() - 180000,
+      nodes: [
+        { id:'analyze',    name:'需求分析',     type:'analyze',    status:'COMPLETED', dependencies:[],                          startedAt:Date.now()-180000, completedAt:Date.now()-175000, tokensUsed:2800,  costCents:3,  result:'生成 Business Spec + Technical Spec' },
+        { id:'plan',       name:'DAG规划',      type:'plan',       status:'COMPLETED', dependencies:['analyze'],                 startedAt:Date.now()-175000, completedAt:Date.now()-168000, tokensUsed:4200,  costCents:5,  result:'规划 4 个子任务，含依赖关系' },
+        { id:'reviewSpec', name:'子Spec生成',   type:'reviewSpec', status:'COMPLETED', dependencies:['plan'],                    startedAt:Date.now()-168000, completedAt:Date.now()-155000, tokensUsed:6500,  costCents:8,  result:'为每个子任务生成详细 SubSpec' },
+        { id:'approval',   name:'人工审批',     type:'approval',   status:'COMPLETED', dependencies:['reviewSpec'],              startedAt:Date.now()-155000, completedAt:Date.now()-120000, tokensUsed:0,     costCents:0,  result:'审批通过 - 张三审批' },
+        { id:'schedule',   name:'调度DAG',      type:'schedule',   status:'COMPLETED', dependencies:['approval'],                startedAt:Date.now()-120000, completedAt:Date.now()-119900, tokensUsed:0,     costCents:0,  result:'就绪: [define-order-interface]' },
+        { id:'dispatch',   name:'派发任务',     type:'dispatch',   status:'COMPLETED', dependencies:['schedule'],                startedAt:Date.now()-119900, completedAt:Date.now()-119500, tokensUsed:0,     costCents:0,  result:'Redis Stream → Worker' },
+        { id:'worker-define-interface', name:'定义接口',  type:'worker',     status:'COMPLETED', dependencies:['dispatch'],                startedAt:Date.now()-119500, completedAt:Date.now()-100000, tokensUsed:8500,  costCents:10, result:'生成 OrderFacade.java + 3个方法签名' },
+        { id:'worker-order-impl',      name:'订单实现',  type:'worker',     status:'COMPLETED', dependencies:['worker-define-interface'], startedAt:Date.now()-100000, completedAt:Date.now()-60000,  tokensUsed:12000, costCents:15, result:'OrderFacadeImpl.java + 单元测试' },
+        { id:'worker-payment-adapter', name:'支付适配',  type:'worker',     status:'RUNNING',   dependencies:['worker-define-interface'], startedAt:Date.now()-100000, completedAt:null,              tokensUsed:7200,  costCents:9,  result:'正在生成 PaymentAdapter.java...' },
+        { id:'worker-integration-test',name:'集成测试',  type:'worker',     status:'BLOCKED',   dependencies:['worker-order-impl','worker-payment-adapter'], startedAt:null, completedAt:null, tokensUsed:0, costCents:0, result:'等待依赖完成' },
+        { id:'collect',     name:'收集结果',    type:'collect',    status:'PENDING',   dependencies:['worker-integration-test'], startedAt:null, completedAt:null, tokensUsed:0, costCents:0, result:'' },
+        { id:'integrate',   name:'集成验证',    type:'integrate',  status:'PENDING',   dependencies:['collect'],                 startedAt:null, completedAt:null, tokensUsed:0, costCents:0, result:'' }
+      ]
+    };
+  }
+
+  // ==================== 获取初始状态 ====================
+  function fetchStatus() {
+    fetch('/api/workflow/status/demo-task-001')
+      .then(r => r.json())
+      .then(data => {
+        workflowData = data;
+        renderDAG();
+        renderHeader();
+        addLog('system', '已从服务端加载任务状态', 'completed');
+      })
+      .catch(err => {
+        // 离线模式：使用 Demo 数据
+        workflowData = getDemoData();
+        renderDAG();
+        renderHeader();
+        addLog('system', '服务端未启动，加载 Demo 数据（离线模式）', 'waiting');
+        addLog('system', '启动 Spring Boot 后可连接 SSE 实时推送', 'waiting');
+
+        // 离线模式：模拟节点状态变化
+        startDemoSimulation();
+      });
+  }
+
+  // ==================== 离线 Demo 模拟 ====================
+  let demoInterval = null;
+  function startDemoSimulation() {
+    // 模拟 worker-payment 从 RUNNING → COMPLETED
+    setTimeout(() => {
+      if (!workflowData) return;
+      const node = workflowData.nodes.find(n => n.id === 'worker-payment-adapter');
+      if (node && node.status === 'RUNNING') {
+        node.status = 'COMPLETED';
+        node.completedAt = Date.now();
+        node.tokensUsed = 11500;
+        node.costCents = 14;
+        node.result = 'PaymentAdapter.java + 单元测试';
+        renderDAG(); renderHeader();
+        addLog('worker-payment-adapter', 'COMPLETED - PaymentAdapter.java 生成完毕', 'completed');
+
+        // 解除 worker-test 的 BLOCKED
+        setTimeout(() => {
+          const test = workflowData.nodes.find(n => n.id === 'worker-integration-test');
+          if (test) {
+            test.status = 'RUNNING';
+            test.startedAt = Date.now();
+            renderDAG(); renderHeader();
+            addLog('worker-integration-test', 'RUNNING - 开始执行集成测试', 'running');
+
+            // 模拟测试完成
+            setTimeout(() => {
+              test.status = 'COMPLETED';
+              test.completedAt = Date.now();
+              test.tokensUsed = 5500;
+              test.costCents = 7;
+              test.result = '6 个测试用例全部通过';
+              renderDAG(); renderHeader();
+              addLog('worker-integration-test', 'COMPLETED - 6 个测试用例全部通过', 'completed');
+
+              // collect
+              setTimeout(() => {
+                const collect = workflowData.nodes.find(n => n.id === 'collect');
+                if (collect) {
+                  collect.status = 'COMPLETED'; collect.completedAt = Date.now();
+                  renderDAG(); renderHeader();
+                  addLog('collect', 'COMPLETED - 所有子任务结果已收集', 'completed');
+                }
+                // integrate
+                setTimeout(() => {
+                  const integrate = workflowData.nodes.find(n => n.id === 'integrate');
+                  if (integrate) {
+                    integrate.status = 'COMPLETED'; integrate.completedAt = Date.now();
+                    integrate.tokensUsed = 3200; integrate.costCents = 4;
+                    integrate.result = '集成审查通过，Spec 覆盖率 100%';
+                    workflowData.status = 'COMPLETED';
+                    renderDAG(); renderHeader();
+                    addLog('integrate', 'COMPLETED - 集成审查通过，Spec 覆盖率 100%', 'completed');
+                    addLog('system', '🎉 任务全部完成！', 'completed');
+                  }
+                }, 2000);
+              }, 1000);
+            }, 3000);
+          }
+        }, 1000);
+      }
+    }, 4000);
+  }
+
+  // ==================== SSE 连接 ====================
+  function connectSSE() {
+    const sseEl = document.getElementById('sseStatus');
+    const sseLabel = document.getElementById('sseLabel');
+
+    sseEl.className = 'sse-status connecting';
+    sseLabel.textContent = '连接中...';
+
+    const es = new EventSource('/api/workflow/stream/demo-task-001');
+
+    es.onopen = () => {
+      sseEl.className = 'sse-status connected';
+      sseLabel.textContent = 'SSE 已连接';
+      addLog('system', 'SSE 实时连接已建立', 'running');
+    };
+
+    es.addEventListener('node-update', (e) => {
+      const event = JSON.parse(e.data);
+      handleNodeUpdate(event);
+    });
+
+    es.onerror = () => {
+      sseEl.className = 'sse-status disconnected';
+      sseLabel.textContent = '连接断开';
+      addLog('system', 'SSE 连接断开，3秒后重连...', 'failed');
+      es.close();
+      setTimeout(connectSSE, 3000);
+    };
+  }
+
+  // ==================== 处理节点更新事件 ====================
+  function handleNodeUpdate(event) {
+    if (!workflowData) return;
+
+    const node = workflowData.nodes.find(n => n.id === event.nodeId);
+    if (!node) return;
+
+    // 更新节点数据
+    node.status = event.status;
+    if (event.tokensUsed != null) node.tokensUsed = event.tokensUsed;
+    if (event.costCents != null) node.costCents = event.costCents;
+    if (event.result) node.result = event.result;
+
+    // 重新渲染
+    renderDAG();
+    renderHeader();
+
+    // 如果正在查看该节点，刷新详情
+    if (selectedNodeId === event.nodeId) {
+      renderDetail(node);
+    }
+
+    // 添加日志
+    const msg = event.result
+      ? `${statusLabel(event.status)} - ${event.result}`
+      : statusLabel(event.status);
+    addLog(event.nodeId, msg, event.status.toLowerCase());
+  }
+
+  // ==================== 渲染 DAG ====================
+  function renderDAG() {
+    if (!workflowData) return;
+
+    const canvas = document.getElementById('dagCanvas');
+    const svg = document.getElementById('dagSvg');
+
+    // 清除旧节点和连线（保留 svg defs）
+    canvas.querySelectorAll('.dag-node').forEach(el => el.remove());
+    svg.querySelectorAll('line').forEach(el => el.remove());
+
+    // 绘制连线
+    workflowData.nodes.forEach(node => {
+      node.dependencies.forEach(depId => {
+        const from = LAYOUT[depId];
+        const to = LAYOUT[node.id];
+        if (!from || !to) return;
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        // 从源节点底部中心 → 目标节点顶部中心
+        line.setAttribute('x1', from.x + NODE_W / 2);
+        line.setAttribute('y1', from.y + NODE_H);
+        line.setAttribute('x2', to.x + NODE_W / 2);
+        line.setAttribute('y2', to.y);
+
+        // 如果源节点已完成，连线高亮
+        const srcNode = workflowData.nodes.find(n => n.id === depId);
+        if (srcNode && srcNode.status === 'COMPLETED') {
+          line.classList.add('active');
+          line.setAttribute('marker-end', 'url(#arrowhead-active)');
+        }
+
+        svg.appendChild(line);
+      });
+    });
+
+    // 绘制节点
+    workflowData.nodes.forEach(node => {
+      const pos = LAYOUT[node.id];
+      if (!pos) return;
+
+      const el = document.createElement('div');
+      el.className = 'dag-node' + (selectedNodeId === node.id ? ' selected' : '');
+      el.setAttribute('data-status', node.status);
+      el.style.left = pos.x + 'px';
+      el.style.top = pos.y + 'px';
+      el.innerHTML = `
+        <div class="node-type">${node.type}</div>
+        <div class="node-name">${node.name}</div>
+        <div class="node-status"><span class="s-dot"></span>${statusLabel(node.status)}</div>
+      `;
+      el.addEventListener('click', () => {
+        selectedNodeId = node.id;
+        renderDAG();
+        renderDetail(node);
+      });
+      canvas.appendChild(el);
+    });
+  }
+
+  // ==================== 渲染头部 ====================
+  function renderHeader() {
+    if (!workflowData) return;
+
+    document.getElementById('requirement').textContent = workflowData.requirement;
+    document.getElementById('requirement').title = workflowData.requirement;
+
+    // 任务状态 badge
+    const badge = document.getElementById('taskStatus');
+    const text = document.getElementById('taskStatusText');
+    const st = workflowData.status.toLowerCase().replace('_', '-');
+    badge.className = 'status-badge ' + (st === 'waiting-approval' ? 'waiting' : st);
+    text.textContent = workflowData.status;
+  }
+
+  // ==================== 渲染详情面板 ====================
+  function renderDetail(node) {
+    const container = document.getElementById('detailContent');
+
+    const statusClass = node.status.toLowerCase();
+    const elapsed = node.startedAt && node.completedAt
+      ? formatMs(node.completedAt - node.startedAt)
+      : node.startedAt ? '运行中...' : '未开始';
+
+    container.innerHTML = `
+      <div class="detail-content">
+        <h3>${node.name}</h3>
+        <div class="detail-type">${node.type} · ${node.id}</div>
+        <div class="detail-status status-badge ${statusClass === 'waiting' ? 'waiting' : statusClass}">
+          <span class="dot" style="width:6px;height:6px;border-radius:50%;background:currentColor;"></span>
+          ${statusLabel(node.status)}
+        </div>
+        <div class="detail-row">
+          <span class="label">耗时</span>
+          <span class="value">${elapsed}</span>
+        </div>
+        <div class="detail-row">
+          <span class="label">Token 消耗</span>
+          <span class="value">${node.tokensUsed != null ? node.tokensUsed.toLocaleString() : '-'}</span>
+        </div>
+        <div class="detail-row">
+          <span class="label">费用</span>
+          <span class="value">${node.costCents != null ? '¥' + (node.costCents / 100).toFixed(2) : '-'}</span>
+        </div>
+        ${node.dependencies.length > 0 ? `
+          <div class="detail-deps">
+            <div class="deps-title">依赖节点</div>
+            ${node.dependencies.map(d => `<span class="dep-tag">${d}</span>`).join('')}
+          </div>
+        ` : ''}
+        ${node.result ? `
+          <div class="detail-result">
+            <div class="result-title">执行结果</div>
+            <div class="result-text">${node.result}</div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  // ==================== 日志 ====================
+  function addLog(nodeId, message, statusClass) {
+    const body = document.getElementById('logBody');
+    const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+
+    const entry = document.createElement('div');
+    entry.className = 'log-entry log-' + statusClass;
+    entry.innerHTML = `
+      <span class="log-time">${time}</span>
+      <span class="log-node">${nodeId}</span>
+      <span class="log-msg">${message}</span>
+    `;
+    body.appendChild(entry);
+    body.scrollTop = body.scrollHeight;
+
+    logEntries.push({ time, nodeId, message });
+    document.getElementById('logCount').textContent = logEntries.length + ' events';
+  }
+
+  // ==================== 计时器 ====================
+  function startElapsedTimer() {
+    const el = document.getElementById('elapsed');
+    elapsedTimer = setInterval(() => {
+      if (!workflowData) return;
+      const ms = Date.now() - workflowData.startedAt;
+      el.textContent = formatMs(ms);
+    }, 1000);
+  }
+
+  // ==================== 工具函数 ====================
+  function statusLabel(s) {
+    const map = {
+      'PENDING': '等待中',
+      'RUNNING': '运行中',
+      'COMPLETED': '已完成',
+      'FAILED': '失败',
+      'BLOCKED': '阻塞',
+      'WAITING': '待审批'
+    };
+    return map[s] || s;
+  }
+
+  function formatMs(ms) {
+    const sec = Math.floor(ms / 1000);
+    const min = Math.floor(sec / 60);
+    const s = sec % 60;
+    return String(min).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  // ==================== 启动 ====================
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>

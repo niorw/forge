@@ -1,0 +1,44 @@
+# === Maven ===
+target/
+*.jar
+*.war
+*.ear
+*.class
+
+# === IDE ===
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+*.swp
+*~
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Logs ===
+logs/
+*.log
+
+# === Spring Boot ===
+spring-shell.log
+
+# === Env / Secrets ===
+.env
+*.env
+!.env.example
+
+# === OpenSpec / Docs build ===
+docs/*.html
+!docs/gen.py
+
+# === Misc ===
+*.tmp
+*.bak
+*.orig

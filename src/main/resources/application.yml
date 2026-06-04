@@ -1,0 +1,214 @@
+# ============================================================
+# Forge 多Agent编排系统 - 应用配置
+# ============================================================
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: forge
+
+  # MySQL 数据源配置（checkpoint 持久化）
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  # Redis 集群配置（Stream 做任务 MQ）
+  data:
+    redis:
+      # ---- 集群模式（默认）----
+      cluster:
+        nodes: ${REDIS_NODES}
+        max-redirects: 3
+      # ---- 单机模式（开发用，设置 spring.redis.standalone=true 激活）----
+      # 单机模式下 host/port 生效，cluster.nodes 被忽略
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 6000ms
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:16}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: ${REDIS_POOL_MAX_WAIT:3000ms}
+        cluster:
+          refresh:
+            adaptive: true            # 自适应集群拓扑刷新
+            period: 30s               # 定期刷新集群拓扑
+
+  # ============================================================
+  # Spring AI MCP Client 配置
+  # ============================================================
+  # MCP Server 通过 stdio 协议与 Agent 通信
+  # 每个 Server 提供一组工具，桥接到 ToolRegistry 后可被 Agent 调用
+  # 需要时取消注释并配置对应的环境变量
+  # ============================================================
+  # mcp:
+  #   client:
+  #     stdio:
+  #       servers:
+  #         # GitHub 操作（创建 Issue、PR、评论等）
+  #         github:
+  #           command: npx
+  #           args:
+  #             - "-y"
+  #             - "@modelcontextprotocol/server-github"
+  #           env:
+  #             GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_TOKEN:}
+  #
+  #         # MySQL 数据库查询
+  #         mysql:
+  #           command: npx
+  #           args:
+  #             - "-y"
+  #             - "@anthropic/mcp-server-mysql"
+  #           env:
+  #             MYSQL_CONNECTION_STRING: ${MYSQL_MCP_URL:}
+  #
+  #         # Jenkins 构建触发
+  #         jenkins:
+  #           command: java
+  #           args:
+  #             - "-jar"
+  #             - "/opt/mcp-servers/mcp-jenkins.jar"
+  #           env:
+  #             JENKINS_URL: ${JENKINS_URL:}
+  #             JENKINS_TOKEN: ${JENKINS_TOKEN:}
+
+  # JPA 不需要，LangGraph4j MysqlSaver 直接用 JDBC
+  # jpa:
+  #   hibernate:
+  #     ddl-auto: update
+  #   show-sql: false
+
+  # ============================================================
+  # Spring AI 双供应商配置（Anthropic + OpenAI）
+  # ============================================================
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY}
+      base-url: ${ANTHROPIC_BASE_URL}
+      chat:
+        options:
+          model: ${ANTHROPIC_MODEL:claude-sonnet-4-20250514}
+          max-tokens: 4096
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-placeholder}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-4o}
+          max-tokens: 4096
+
+# ============================================================
+# 自定义 Agent 配置
+# ============================================================
+agent:
+  # ===== 多模型配置（不同角色用不同供应商+模型）=====
+  # provider: anthropic 或 openai
+  models:
+    planner:
+      provider: ${PLANNER_PROVIDER:anthropic}
+      model: ${PLANNER_MODEL:claude-sonnet-4-20250514}
+      max-tokens: 2048
+    architect:
+      provider: ${ARCHITECT_PROVIDER:anthropic}
+      model: ${ARCHITECT_MODEL:claude-sonnet-4-20250514}
+      max-tokens: 4096
+    reviewer:
+      provider: ${REVIEWER_PROVIDER:anthropic}
+      model: ${REVIEWER_MODEL:claude-sonnet-4-20250514}
+      max-tokens: 4096
+    security-reviewer:
+      provider: ${SECURITY_REVIEWER_PROVIDER:anthropic}
+      model: ${SECURITY_REVIEWER_MODEL:claude-sonnet-4-20250514}
+      max-tokens: 4096
+    worker:
+      provider: ${WORKER_PROVIDER:anthropic}
+      model: ${WORKER_MODEL:claude-sonnet-4-20250514}
+      max-tokens: 8192
+
+  # Redis Stream 名称
+  stream:
+    dispatch-name: "agent:task:dispatch"
+    result-name: "agent:task:result"
+    consumer-group: "agent-workers"
+    consumer-name: "worker-1"
+
+  # 子 Agent 配置
+  child:
+    max-concurrent: 5
+    timeout-seconds: 300
+    retry-count: 3
+
+  # Spec 存储路径
+  spec:
+    storage-path: ${SPEC_STORAGE_PATH:./specs}
+
+  # Skill 外部目录（可选，覆盖内置 Skill）
+  skills:
+    external-dir: ${SKILL_EXTERNAL_DIR:}
+
+  # 审批配置
+  approval:
+    enabled: true
+    timeout-minutes: 60
+    auto-approve-on-timeout: false
+
+  # 飞书推送配置
+  feishu:
+    webhook-url: ${FEISHU_WEBHOOK_URL:}
+    enabled: ${FEISHU_ENABLED:false}
+
+# ============================================================
+# 监控端点配置（Prometheus + Micrometer）
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: forge
+    export:
+      prometheus:
+        enabled: true
+
+# ============================================================
+# 日志配置
+# ============================================================
+logging:
+  level:
+    root: INFO
+    com.gmf.agent: DEBUG
+    io.lettuce: WARN
+    org.springframework.data.redis: WARN
+    org.springframework.ai: DEBUG
+    org.bsc.langgraph4j: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# ============================================================
+# OpenTelemetry 配置
+# ============================================================
+otel:
+  service:
+    name: forge
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}

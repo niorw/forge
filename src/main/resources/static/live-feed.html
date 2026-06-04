@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Live Feed — 全链路事件监控</title>
+    <style>
+        /* ===== 暗色主题（近黑背景 + 半透明边框） ===== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+            background: #08090a;
+            color: #f7f8f8;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        /* ===== 顶部栏 ===== */
+        .header {
+            background: #0f1011;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 16px; font-weight: 600; color: #f7f8f8; }
+        .header .stats {
+            display: flex; gap: 20px; font-size: 12px; color: #8a8f98;
+        }
+        .header .stats .count { color: #7170ff; font-weight: 600; }
+        .header .status {
+            display: flex; align-items: center; gap: 8px;
+        }
+        .header .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #22c55e; animation: pulse 2s infinite;
+        }
+        .header .dot.disconnected { background: #ef4444; animation: none; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        /* ===== 过滤器栏 ===== */
+        .filters {
+            background: #0f1011;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 8px 24px;
+            display: flex; gap: 8px; flex-wrap: wrap;
+        }
+        .filter-btn {
+            padding: 4px 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px;
+            background: transparent;
+            color: #8a8f98;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .filter-btn:hover { border-color: rgba(255,255,255,0.2); color: #d0d6e0; }
+        .filter-btn.active { background: #7170ff; color: #fff; border-color: #7170ff; }
+
+        /* ===== 事件列表 ===== */
+        .events {
+            padding: 8px 0;
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+        .event-row {
+            display: flex;
+            align-items: flex-start;
+            padding: 6px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            transition: background 0.1s;
+            animation: fadeIn 0.2s ease-out;
+        }
+        .event-row:hover { background: rgba(255,255,255,0.03); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+        .event-time { width: 140px; color: #555; font-size: 11px; flex-shrink: 0; }
+        .event-level {
+            width: 50px; font-size: 11px; font-weight: 600; flex-shrink: 0;
+            text-align: center; padding: 1px 6px; border-radius: 3px;
+        }
+        .event-level.INFO  { color: #22c55e; background: rgba(34,197,94,0.1); }
+        .event-level.WARN  { color: #f59e0b; background: rgba(245,158,11,0.1); }
+        .event-level.ERROR { color: #ef4444; background: rgba(239,68,68,0.1); }
+        .event-level.DEBUG { color: #6b7280; background: rgba(107,114,128,0.1); }
+
+        .event-source {
+            width: 130px; color: #7170ff; font-size: 12px; flex-shrink: 0;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .event-type {
+            width: 120px; font-size: 11px; flex-shrink: 0; color: #8a8f98;
+        }
+        .event-summary { flex: 1; color: #d0d6e0; font-size: 12px; }
+
+        /* 事件类型色彩编码 */
+        .event-type-tag {
+            display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px;
+        }
+        .type-node      { color: #22c55e; background: rgba(34,197,94,0.1); }
+        .type-llm       { color: #7170ff; background: rgba(113,112,255,0.1); }
+        .type-tool      { color: #f59e0b; background: rgba(245,158,11,0.1); }
+        .type-task      { color: #06b6d4; background: rgba(6,182,212,0.1); }
+        .type-review    { color: #ec4899; background: rgba(236,72,153,0.1); }
+        .type-pipeline  { color: #8b5cf6; background: rgba(139,92,246,0.1); }
+        .type-system    { color: #6b7280; background: rgba(107,114,128,0.1); }
+        .type-approval  { color: #f97316; background: rgba(249,115,22,0.1); }
+
+        /* ===== 展开详情 ===== */
+        .event-detail {
+            display: none;
+            padding: 8px 24px 8px 220px;
+            background: rgba(255,255,255,0.02);
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            font-size: 11px; color: #8a8f98;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        .event-detail.show { display: block; }
+
+        /* ===== 空状态 ===== */
+        .empty {
+            text-align: center; padding: 60px 20px; color: #555;
+        }
+        .empty h2 { font-size: 16px; margin-bottom: 8px; color: #8a8f98; }
+
+        /* ===== 滚动条 ===== */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+    </style>
+</head>
+<body>
+    <!-- 顶部栏 -->
+    <div class="header">
+        <h1>🔴 Agent Live Feed</h1>
+        <div class="stats">
+            <span>事件: <span class="count" id="totalCount">0</span></span>
+            <span>SSE: <span class="count" id="sseClients">-</span></span>
+            <span>显示: <span class="count" id="visibleCount">0</span></span>
+        </div>
+        <div class="status">
+            <div class="dot" id="statusDot"></div>
+            <span id="statusText" style="font-size:12px;color:#8a8f98">连接中...</span>
+        </div>
+    </div>
+
+    <!-- 过滤器栏 -->
+    <div class="filters">
+        <button class="filter-btn active" data-filter="all">全部</button>
+        <button class="filter-btn" data-filter="NODE">节点</button>
+        <button class="filter-btn" data-filter="LLM">LLM</button>
+        <button class="filter-btn" data-filter="TOOL">工具</button>
+        <button class="filter-btn" data-filter="TASK">任务</button>
+        <button class="filter-btn" data-filter="REVIEW">审查</button>
+        <button class="filter-btn" data-filter="PIPELINE">管线</button>
+        <button class="filter-btn" data-filter="APPROVAL">审批</button>
+        <button class="filter-btn" data-filter="SYSTEM">系统</button>
+        <button class="filter-btn" data-filter="ERROR" style="color:#ef4444">错误</button>
+    </div>
+
+    <!-- 事件列表 -->
+    <div class="events" id="eventsList">
+        <div class="empty">
+            <h2>等待事件...</h2>
+            <p>连接 SSE 后，事件将实时显示在这里</p>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        const events = [];
+        let activeFilter = 'all';
+
+        // ===== SSE 连接 =====
+        function connectSse() {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+
+            const es = new EventSource(API_BASE + '/api/events/stream');
+
+            es.onopen = () => {
+                dot.className = 'dot';
+                text.textContent = '已连接';
+            };
+
+            es.onerror = () => {
+                dot.className = 'dot disconnected';
+                text.textContent = '连接断开，3秒后重连...';
+                es.close();
+                setTimeout(connectSse, 3000);
+            };
+
+            // 监听所有事件类型
+            const eventTypes = [
+                'node_start', 'node_complete', 'node_fail',
+                'llm_request', 'llm_response', 'llm_error',
+                'tool_call', 'tool_result', 'tool_error',
+                'task_dispatch', 'task_complete', 'task_fail',
+                'approval_wait', 'approval_decision',
+                'review_start', 'review_verdict',
+                'pipeline_start', 'pipeline_complete',
+                'system_info', 'system_warn', 'system_error'
+            ];
+
+            eventTypes.forEach(type => {
+                es.addEventListener(type, e => {
+                    try {
+                        const event = JSON.parse(e.data);
+                        addEvent(event);
+                    } catch (err) {
+                        console.error('Parse error:', err);
+                    }
+                });
+            });
+
+            // 兜底：onmessage 处理未命名事件
+            es.onmessage = e => {
+                try {
+                    const event = JSON.parse(e.data);
+                    addEvent(event);
+                } catch (err) {}
+            };
+        }
+
+        // ===== 添加事件 =====
+        function addEvent(event) {
+            events.push(event);
+            document.getElementById('totalCount').textContent = events.length;
+
+            if (shouldShow(event)) {
+                renderEvent(event);
+            }
+        }
+
+        // ===== 判断是否显示 =====
+        function shouldShow(event) {
+            if (activeFilter === 'all') return true;
+            if (activeFilter === 'ERROR') return event.level === 'ERROR';
+            return event.type.startsWith(activeFilter);
+        }
+
+        // ===== 渲染单条事件 =====
+        function renderEvent(event) {
+            const list = document.getElementById('eventsList');
+
+            // 移除空状态
+            const empty = list.querySelector('.empty');
+            if (empty) empty.remove();
+
+            const row = document.createElement('div');
+            row.className = 'event-row';
+            row.onclick = () => {
+                const detail = row.nextElementSibling;
+                if (detail && detail.classList.contains('event-detail')) {
+                    detail.classList.toggle('show');
+                }
+            };
+
+            const typeClass = getTypeClass(event.type);
+            const typeTag = `<span class="event-type-tag ${typeClass}">${formatType(event.type)}</span>`;
+
+            row.innerHTML = `
+                <div class="event-time">${event.timestamp}</div>
+                <div class="event-level ${event.level}">${event.level}</div>
+                <div class="event-source">${event.source || '-'}</div>
+                <div class="event-type">${typeTag}</div>
+                <div class="event-summary">${escapeHtml(event.summary || '')}</div>
+            `;
+
+            // 详情行
+            const detailRow = document.createElement('div');
+            detailRow.className = 'event-detail';
+            detailRow.textContent = event.detail || JSON.stringify(event.metadata, null, 2) || '(无详情)';
+
+            list.insertBefore(detailRow, list.firstChild);
+            list.insertBefore(row, list.firstChild);
+
+            // 限制显示数量
+            while (list.children.length > 500) {
+                list.removeChild(list.lastChild);
+            }
+
+            document.getElementById('visibleCount').textContent =
+                list.querySelectorAll('.event-row').length;
+        }
+
+        // ===== 过滤器 =====
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                activeFilter = btn.dataset.filter;
+                rerender();
+            };
+        });
+
+        function rerender() {
+            const list = document.getElementById('eventsList');
+            list.innerHTML = '';
+            const filtered = activeFilter === 'all'
+                ? events
+                : events.filter(e => activeFilter === 'ERROR' ? e.level === 'ERROR' : e.type.startsWith(activeFilter));
+            filtered.slice().reverse().forEach(e => renderEvent(e));
+            document.getElementById('visibleCount').textContent = filtered.length;
+        }
+
+        // ===== 工具函数 =====
+        function getTypeClass(type) {
+            if (type.startsWith('NODE')) return 'type-node';
+            if (type.startsWith('LLM')) return 'type-llm';
+            if (type.startsWith('TOOL')) return 'type-tool';
+            if (type.startsWith('TASK')) return 'type-task';
+            if (type.startsWith('REVIEW')) return 'type-review';
+            if (type.startsWith('PIPELINE')) return 'type-pipeline';
+            if (type.startsWith('APPROVAL')) return 'type-approval';
+            return 'type-system';
+        }
+
+        function formatType(type) {
+            return type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // ===== 启动 =====
+        connectSse();
+
+        // 定期刷新统计
+        setInterval(() => {
+            fetch(API_BASE + '/api/events/stats')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('sseClients').textContent = data.sseClients || 0;
+                })
+                .catch(() => {});
+        }, 10000);
+    </script>
+</body>
+</html>
